@@ -2,7 +2,7 @@
 
 # t/06_plugin_env.t - Test env
 
-use Test::Most tests => 4+1;
+use Test::Most tests => 5+1;
 use Test::NoWarnings;
 
 use lib 't/testlib';
@@ -38,4 +38,12 @@ subtest 'Env not passing type constraint' => sub {
     my $test01 = Test01->new_with_command;
     isa_ok($test01,'MooseX::App::Message::Envelope');
     is($test01->blocks->[0]->header,"Invalid environment value for 'LOCAL1'","Message ok");
+};
+
+subtest 'Coerce env value' => sub {
+    MooseX::App::ParsedArgv->new(argv => [qw(command_d --global 1)]);
+    local $ENV{LOCAL1} = 42;
+    my $test01 = Test01->new_with_command;
+    isa_ok($test01,'Test01::CommandD');
+    is_deeply($test01->command_local1,[42],'Arg coerced from command env');
 };

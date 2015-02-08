@@ -8,7 +8,7 @@ use strict;
 use warnings;
 
 our $AUTHORITY = 'cpan:MAROS';
-our $VERSION = '1.30';
+our $VERSION = '1.31';
 
 use MooseX::App::Meta::Role::Attribute::Option;
 use MooseX::App::Exporter qw(app_usage app_description app_base app_fuzzy app_strict app_prefer_commandline option parameter);
@@ -279,7 +279,7 @@ This is equivalent to
       cmd_type      => 'parameter',
   );
 
-Furthermore all options and parameters can also be suplied vie %ENV
+Furthermore, all options and parameters can also be supplied via %ENV
 
   option 'some_option' => (
       is            => 'rw',
@@ -526,13 +526,15 @@ your report as I make changes.
     
 =head1 CONTRIBUTORS
 
+Special thanks to all contributors.
+
 In no particular order: Andrew Jones, George Hartzell, Steve Nolte, 
 Michael G, Thomas Klausner, Yanick Champoux, Edward Baudrez, David Golden,
-J.R. Mash, Thilo Fester, Gregor Herrmann
+J.R. Mash, Thilo Fester, Gregor Herrmann, Sergey Romanov, Sawyer X, Roman F.
 
 =head1 COPYRIGHT
 
-MooseX::App is Copyright (c) 2012-14 Maroš Kollár.
+MooseX::App is Copyright (c) 2012-15 Maroš Kollár.
 
 This library is free software and may be distributed under the same terms as 
 perl itself. The full text of the licence can be found in the LICENCE file 

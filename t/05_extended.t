@@ -2,7 +2,7 @@
 
 # t/05_extended.t - Extended tests
 
-use Test::Most tests => 24+1;
+use Test::Most tests => 25+1;
 use Test::NoWarnings;
 
 use FindBin qw();
@@ -61,6 +61,7 @@ subtest 'All options available & no description' => sub {
     is($test04->blocks->[2]->body,"    --another             [Required; Not important]
     --global_option       Enable this to do fancy stuff [Flag]
     --help -h --usage -?  Prints this usage information. [Flag]
+    --list                [Multiple]
     --roleattr            [Role]
     --some_option         Very important option!","Message ok");
 };
@@ -105,7 +106,7 @@ subtest 'Test type constraints custom1' => sub {
 };
 
 subtest 'Test pass type constraints' => sub {
-    MooseX::App::ParsedArgv->new(argv => [qw(another --hash key1=value1 --split a;b --split c --hash key2=value2 --integer 10 --number 10.10 --custom1 11 --custom2 test --extra1 wurtsch)]);
+    MooseX::App::ParsedArgv->new(argv => [qw(another --hash key1=value1 --split a;b --split c --hash key2=value2 --integer 10 --number 10.10 --custom1 11 --custom2 test --extra1 wurtsch --count --count)]);
     my $test09 = Test03->new_with_command;
     isa_ok($test09,'Test03::AnotherCommand');
     is($test09->hash->{key1},"value1","Hash ok");
@@ -115,6 +116,7 @@ subtest 'Test pass type constraints' => sub {
     is(ref($test09->custom2),'SCALAR',"Custom type 2 ok");
     is(${$test09->custom2},'test',"Custom type 2 ok");
     is($test09->extra1,'wurtsch',"Attr set ok");
+    is($test09->count,2,"Count set ok");
     cmp_deeply($test09->split,[qw(a b c)],'Split ok');
 };
 
@@ -136,6 +138,7 @@ subtest 'Test flags & defaults' => sub {
     is($test11->bool2,1,'Bool2 flag is set');
     is($test11->bool3,1,'Bool3 flag is set');
     is($test11->value,'hase','Value is default');
+    
 };
 
 subtest 'Test more flags & defaults' => sub {
@@ -143,7 +146,7 @@ subtest 'Test more flags & defaults' => sub {
     my $test11 = Test03->new_with_command;
     isa_ok($test11,'Test03::YetAnotherCommand');
     is($test11->bool1,1,'Bool1 flag is undef');
-    is($test11->bool2,0,'Bool2 flag is unset');
+    is($test11->bool2,1,'Bool2 flag is unset');
     is($test11->bool3,1,'Bool3 flag is set');
     is($test11->value,'baer','Value is set');
 };
@@ -206,12 +209,7 @@ subtest 'Test extra positional params' => sub {
     is($test15->extra1,'p1','Param 1 ok');
     is($test15->extra2,'22','Param 2 ok');
     is($test15->alpha,'33','Param 3 ok');
-    is($test15->extra_argv->[0],'marder','Uncomsumed parameter ok');
-    is($test15->extra_argv->[1],'dachs','Uncomsumed parameter ok');
-    is($test15->extra_argv->[2],'luchs','Uncomsumed option ok');
-    is($test15->extra_argv->[3],'fuchs','Uncomsumed option ok');
-    is($test15->extra_argv->[4],'baer','Uncomsumed option ok');
-    is($test15->extra_argv->[5],'--hase','Uncomsumed option ok');
+    cmp_deeply($test15->extra_argv,[qw(marder dachs luchs fuchs baer --hase)],'Uncomsumed option ok');
 };
 
 subtest 'Test parameter preference' => sub {
@@ -244,3 +242,14 @@ subtest 'Test enum error message' => sub {
     isa_ok($test18,'MooseX::App::Message::Envelope');
     is($test18->blocks->[0]->body,"Value must be one of these values: aaa, bbb, ccc, ddd, eee, fff (not 'ggg')","Check enum error message");
 };
+
+subtest 'Test empty multi' => sub {
+    MooseX::App::ParsedArgv->new(argv => [qw(somecommand --another hase --list val1 --list val2 --list)]);
+    my $test19 = Test03->new_with_command();
+    isa_ok($test19,'Test03::SomeCommand');
+    is(scalar(@{$test19->list}),3,'Has three list items');
+    is($test19->list->[0],'val1','First value ok');
+    is($test19->list->[2],undef,'First value empty');
+    
+};
+

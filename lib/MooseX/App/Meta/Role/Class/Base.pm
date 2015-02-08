@@ -18,14 +18,16 @@ no if $] >= 5.018000, warnings => qw(experimental::smartmatch);
 has 'app_messageclass' => (
     is          => 'rw',
     isa         => 'ClassName',
-    lazy_build  => 1,
+    lazy        => 1,
+    builder     => '_build_app_messageclass',
 );
 
 has 'app_namespace' => (
     is          => 'rw',
     isa         => 'MooseX::App::Types::List',
     coerce      => 1,
-    lazy_build  => 1,
+    lazy        => 1,
+    builder     => '_build_app_namespace',
 );
 
 has 'app_base' => (
@@ -37,13 +39,13 @@ has 'app_base' => (
 has 'app_strict' => (
     is          => 'rw',
     isa         => 'Bool',
-    default     => 0,
+    default     => sub {0},
 );
 
 has 'app_fuzzy' => (
     is          => 'rw',
     isa         => 'Bool',
-    default     => 1,
+    default     => sub {1},
 );
 
 has 'app_command_name' => (
@@ -55,7 +57,7 @@ has 'app_command_name' => (
 has 'app_prefer_commandline' => (
     is          => 'rw',
     isa         => 'Bool',
-    default     => 0,
+    default     => sub {0},
 );
 
 has 'app_commands' => (
@@ -66,7 +68,8 @@ has 'app_commands' => (
         command_register    => 'set', 
         command_get         => 'get',  
     },
-    lazy_build  => 1,
+    lazy        => 1,
+    builder     => '_build_app_commands',
 );
 
 sub _build_app_messageclass {
@@ -171,11 +174,11 @@ sub command_args {
     my @attributes_parameter  = $self->command_usage_attributes($metaclass,'parameter');
 
     foreach my $attribute (@attributes_parameter) {
-        my $value = $parsed_argv->consume('parameter');
+        my $element = $parsed_argv->consume('parameter');
         last
-            unless defined $value;
+            unless defined $element;
 
-        my ($parameter_value,$parameter_errors) = $self->command_process_attribute($attribute,$value->key);
+        my ($parameter_value,$parameter_errors) = $self->command_process_attribute($attribute,$element->key);
         push(@{$errors},@{$parameter_errors});
         $return->{$attribute->name} = $parameter_value;
     }
@@ -201,8 +204,20 @@ sub command_args {
         
         if (exists $ENV{$cmd_env}
             && ! defined $return->{$attribute->name}) {
-            $return->{$attribute->name} = $ENV{$cmd_env};
-            my $error = $attribute->cmd_type_constraint_check($ENV{$cmd_env});
+            
+            my $value = $ENV{$cmd_env};
+            
+            if ($attribute->has_type_constraint) {
+                my $type_constraint = $attribute->type_constraint;
+                if ($attribute->should_coerce
+                    && $type_constraint->has_coercion) {
+                    my $coercion = $type_constraint->coercion;
+                    $value = $coercion->coerce($value) // $value;
+                }
+            }
+            
+            $return->{$attribute->name} = $value;
+            my $error = $attribute->cmd_type_constraint_check($value);
             if ($error) {
                 push(@{$errors},
                     $self->command_message(
@@ -259,7 +274,7 @@ sub command_parse_options {
     # Loop all exact matches
     foreach my $option ($parsed_argv->available('option')) {
         if (my $attribute = $option_to_attribute{$option->key}) {
-            $match->{$attribute->name} = $option->value;
+            $match->{$attribute->name} = $option->full_value;
             $option->consume($attribute);
         }
     }
@@ -301,7 +316,7 @@ sub command_parse_options {
                     my $attribute = $match_attributes->[0];
                     $option->consume();
                     $match->{$attribute->name} ||= [];
-                    push(@{$match->{$attribute->name}},@{$option->value}); 
+                    push(@{$match->{$attribute->name}},@{$option->full_value}); 
                 }
                 # Multiple matches
                 default {
@@ -356,6 +371,11 @@ sub command_process_attribute {
         $raw = \@raw_unfolded;
     }
     
+    # Attribute with counter
+    if ($attribute->cmd_count) {
+        $raw = [ scalar(@$raw) ];
+    }
+    
     # Attribute with type constraint
     if ($attribute->has_type_constraint) {
         my $type_constraint = $attribute->type_constraint;
@@ -378,7 +398,12 @@ sub command_process_attribute {
                 }
             }
         } elsif ($type_constraint->is_a_type_of('Bool')) {
-            $value = $attribute->cmd_is_bool; # TODO or 0 if no!
+            $value = 1; # TODO or 0 if no!
+            
+#            if ($self->has_default 
+#                && ! $self->is_default_a_coderef
+#                && $self->default == 1) {
+            
         } elsif ($type_constraint->is_a_type_of('Int')) {
             $value = $raw->[-1];
         } else {
@@ -416,11 +441,6 @@ sub command_process_attribute {
     
     return ($value,\@errors);
 }
-
-
-
-
-
 
 sub command_candidates {
     my ($self,$command) = @_;
@@ -498,7 +518,7 @@ sub command_parser_hints {
     my %names;
     foreach my $attribute ($self->command_usage_attributes($metaclass,[qw(option proto)])) {
         foreach my $name ($attribute->cmd_name_possible) {
-            $names{$name} = { name => $attribute->name, bool => $attribute->cmd_is_bool };
+            $names{$name} = { name => $attribute->name, novalue => $attribute->cmd_has_value };
             $hints{$name} = $names{$name};
         }
     }
@@ -530,7 +550,7 @@ sub command_parser_hints {
     my @return;
     foreach my $name (keys %hints) {
         next
-            unless defined $hints{$name}->{bool};
+            if $hints{$name}->{novalue};
         push(@return,$name);
     }
     

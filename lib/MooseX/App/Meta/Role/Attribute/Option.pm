@@ -39,6 +39,12 @@ has 'cmd_split' => (
     predicate   => 'has_cmd_split',
 );
 
+has 'cmd_count' => (
+    is          => 'rw',
+    isa         => 'Bool',
+    default     => sub { 0 },
+);
+
 has 'cmd_env' => (
     is          => 'rw',
     isa         => 'MooseX::App::Types::Env',
@@ -46,9 +52,9 @@ has 'cmd_env' => (
 );
 
 has 'cmd_position' => (
-    is => 'rw',
-    isa => 'Int',
-    default => 0,
+    is          => 'rw',
+    isa         => 'Int',
+    default     => sub { 0 },
 );
 
 my $GLOBAL_COUNTER = 1;
@@ -69,29 +75,32 @@ around 'new' => sub {
     return $self;
 };
 
-sub cmd_is_bool {
+sub cmd_has_value {
     my ($self) = @_; 
     
     if ($self->has_type_constraint
         && $self->type_constraint->is_a_type_of('Bool')) {
         
         # Bool and defaults to true 
-        if ($self->has_default 
-            && ! $self->is_default_a_coderef
-            && $self->default == 1) {
-            return 0;
+        #if ($self->has_default 
+        #    && ! $self->is_default_a_coderef
+        #    && $self->default == 1) {
+        #    return 0;
         ## Bool and is required
         #} elsif (! $self->has_default
         #    && $self->is_required) {
         #    return 0; 
-        }
+        #}
         
         # Ordinary bool
-        return 1;
+        return 0;
     }
     
-    my $ud = undef; # Make perlcritic happy
-    return $ud;
+    if ($self->cmd_count) {
+        return 0;
+    }
+    
+    return 1;
 }
 
 sub cmd_type_constraint_description {
@@ -358,6 +367,14 @@ Override the order of the parameters in the usage message.
 
 Splits multiple values at the given separator string or regular expression. 
 Only works in conjunction with an 'ArrayRef[*]' type constraint (isa).
+ie. '--myattr value1,value2' with cmd_split set to ',' would produce an 
+arrayref with to elements.
+
+=head2 cmd_count
+
+Similar to the Getopt::Long '+' modifier, cmd_count turns the attribute into
+a counter. Every occurence of the attribute in @ARGV (without any value)
+would increment the resulting value by one
 
 =head1 METHODS
 
@@ -393,12 +410,12 @@ Returns the description as used by the usage text
 
 Returns a list of tags
 
-=head2 cmd_is_bool
+=head2 cmd_has_value
 
- my $bool = $attribute->cmd_is_bool();
+ my $has_value = $attribute->cmd_has_value();
 
-Returns true, false or undef depending on the type constraint and default
-of the attribute:
+Indicates if an commandline attribute has a value. Usually attributes with a 
+boolean type constraint or counters don't have values.
 
 =over
 
