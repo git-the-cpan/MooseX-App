@@ -8,7 +8,7 @@ use strict;
 use warnings;
 
 our $AUTHORITY = 'cpan:MAROS';
-our $VERSION = '1.31';
+our $VERSION = '1.32';
 
 use MooseX::App::Meta::Role::Attribute::Option;
 use MooseX::App::Exporter qw(app_usage app_description app_base app_fuzzy app_strict app_prefer_commandline option parameter);
@@ -17,7 +17,7 @@ use Moose::Exporter;
 use Scalar::Util qw(blessed);
 
 my ($IMPORT,$UNIMPORT,$INIT_META) = Moose::Exporter->build_import_methods(
-    with_meta           => [ qw(app_usage app_description app_namespace app_base app_fuzzy app_command_name app_strict option parameter) ],
+    with_meta           => [ qw(app_usage app_description app_namespace app_base app_fuzzy app_command_name app_command_register app_strict option parameter) ],
     also                => [ 'Moose' ],
     as_is               => [ 'new_with_command' ],
     install             => [ 'unimport','init_meta' ],
@@ -54,6 +54,15 @@ sub init_meta {
 sub app_command_name(&) {
     my ( $meta, $namesub ) = @_;
     return $meta->app_command_name($namesub);
+}
+
+sub app_command_register(%) {
+    my ( $meta, %commands ) = @_;
+    
+    foreach my $command (keys %commands) {
+        $meta->command_register($command,$commands{$command});
+    }
+    return;
 }
 
 sub app_namespace(@) {
@@ -105,6 +114,7 @@ sub new_with_command {
                 type            => "error",
             ),
             $meta->command_usage_global(),
+            127, # exitcode
         );
     # Looks like a command
     } else {
@@ -116,6 +126,7 @@ sub new_with_command {
             return MooseX::App::Message::Envelope->new(
                 $return,
                 $meta->command_usage_global(),
+                127, # exitcode
             );
         # One command found
         } else {
@@ -239,10 +250,11 @@ for single command applications)
 attributes metadata and type constraints
 
 =item * Read, encode and validate the command line options and positional 
-parameters entered by the user from @ARGV and %ENV
+parameters entered by the user from @ARGV and %ENV (and possibly prompt
+the user for additional parameters see L<MooseX-App-Plugin-Term>)
 
-=item * Provide helpful error messages if user input cannot be validated (
-either missing or wrong attributes or Moose type constraints not satisfied)
+=item * Provide helpful error messages if user input cannot be validated 
+(either missing or wrong attributes or Moose type constraints not satisfied)
 
 =back
 
@@ -262,6 +274,8 @@ This is equivalent to
       traits        => ['AppOption'],   # Load extra metaclass
       cmd_type      => 'option',        # Set attribute type
   );
+
+Single letter options are treated as flags and may be combined with eachother.
 
 Positional parameters are defined with the 'parameter' keyword
 
@@ -320,14 +334,6 @@ Usually MooseX::App will take the name of the calling wrapper script to
 construct the program name in various help messages. This name can 
 be changed via the app_base function.
 
-=head2 app_namespace
-
- app_namespace 'MyApp::Commands', 'YourApp::MoreCommands';
-
-Usually MooseX::App will take the package name of the base class as the 
-namespace for commands. This namespace can be changed and you can add
-multiple extra namespaces.
-
 =head2 app_fuzzy
 
  app_fuzzy(1); # default
@@ -347,7 +353,7 @@ superfluous/unknown positional parameters are supplied. If disabled all
 extra parameters will be copied to the L<extra_argv> attribute. 
 
 The command_strict config in the command classes allows one to set this option
-individually for each command.
+individually for each command in the respective command class.
 
 =head2 app_prefer_commandline
 
@@ -358,6 +364,19 @@ individually for each command.
 Specifies if parameters/options supplied via @ARGV,%ENV should take precedence
 over arguments passed to new_with_command.
 
+=head2 app_namespace
+
+ app_namespace 'MyApp::Commands', 'YourApp::MoreCommands';
+ OR
+ app_namespace();
+
+Usually MooseX::App will take the package name of the base class as the 
+namespace for commands. This namespace can be changed and you can add
+multiple extra namespaces.
+
+If app_namespace is called with no parameters then autoloading of command
+classes will be disabled entirely.
+
 =head2 app_command_name
 
  app_command_name {
@@ -366,18 +385,31 @@ over arguments passed to new_with_command.
      return $command_name;
  };
 
-This sub can be used to control how package names should be translated
-to command names.
+This coderef can be used to control how autoloaded package names should be 
+translated to command names.
+
+=head2 app_command_register
+
+ app_command_register
+    do      => 'MyApp::Commands::DoSomething',
+    undo    => 'MyApp::Commands::UndoSomething';
+
+This keyword can be used to register additional commands. Especially
+usefull in conjunction with app_namespace.
 
 =head2 app_description
+
+ app_description qq[Description text];
 
 Set the description. If not set this information will be taken from the
 Pod DESCRIPTION or OVERVIEW sections.
 
 =head2 app_usage
 
+ app_usage qq[myapp --option ...];
+
 Set custom usage. If not set this will be taken from the Pod SYNOPSIS or 
-USAGE section. If those sections are not available, the usage
+USAGE section. If both sections are not available, the usage
 information will be autogenerated.
 
 =head1 GLOBAL ATTRIBUTES
@@ -395,19 +427,23 @@ Help flag that is set when help was requested.
 
 =head1 ATTRIBUTE OPTIONS
 
+Options and parameters accept extra attributes for customisation:
+
 =over
 
-=item * cmd_tags - Extra tags
+=item * cmd_tags - Extra tags (as used by the help)
 
-=item * cmd_flag - Override option name
+=item * cmd_flag - Override option/parameter name
 
-=item * cmd_aliases - Alternative option names
+=item * cmd_aliases - Additional option/parameter  names
 
-=item * cmd_split - Split values
+=item * cmd_split - Split values into ArrayRefs
 
-=item * cmd_position - Option/Parameter order
+=item * cmd_position - Specify option/parameter order in help
 
-=item * cmd_env - Read options from %ENV
+=item * cmd_env - Read options/parameters from %ENV
+
+=item * cmd_count - Value of option equals to number of occurences in @ARGV
 
 =back
 
@@ -430,7 +466,11 @@ and should be provided if possible:
 
 =item * Moose type constraints (Bool, ArrayRef, HashRef, Int, Num, and Enum)
 
-=item * POD (NAME, ABSTRACT, DESCRIPTION, USAGE, SYNOPSIS and OVERVIEW sections)
+=item * Documentation set via app_description, app_usage, 
+command_short_description, command_long_description and command_usage
+
+=item * POD (NAME, ABSTRACT, DESCRIPTION, USAGE, SYNOPSIS, OVERVIEW, 
+COPYRIGHT, LICENSE, COPYRIGHT AND LICENSE, AUTHOR and AUTHORS sections)
 
 =item * Dzil ABSTRACT tag if no POD is available yet
 
@@ -450,35 +490,44 @@ Currently the following plugins are shipped with MooseX::App
 
 =item * L<MooseX::App::Plugin::BashCompletion>
 
-Adds a command that genereates a bash completion script for your application
+Adds a command that genereates a bash completion script for your application.
 
 =item * L<MooseX::App::Plugin::Color>
 
-Colorful output for your MooseX::App applications
+Colorful output for your MooseX::App applications.
 
 =item * L<MooseX::App::Plugin::Config>
 
-Config files for MooseX::App applications
+Config files for MooseX::App applications.
 
 =item * L<MooseX::App::Plugin::ConfigHome>
 
-Search config files in users home directory
+Search config files in users home directory.
 
 =item * L<MooseX::App::Plugin::Term>
 
-Prompt user for options and parameters that were not provided via options or params
+Prompt user for options and parameters that were not provided via options or 
+params. Prompt offers basic editing capabilities and history
 
 =item * L<MooseX::App::Plugin::Typo>
 
-Handle typos in command names
+Handle typos in command names and provide suggestions.
 
 =item * L<MooseX::App::Plugin::Version>
 
-Adds a command to display the version and license of your application
+Adds a command to display the version and license of your application.
 
 =item * L<MooseX::App::Plugin::Man>
 
-Display full manpage
+Display full manpage of application and commands.
+
+=item * L<MooseX::App::Plugin::MutexGroup>
+
+Allow for mutally exclusive options
+
+=item * L<MooseX::App::Plugin::Depends>
+
+Adds dependent options
 
 =back
 
@@ -530,7 +579,8 @@ Special thanks to all contributors.
 
 In no particular order: Andrew Jones, George Hartzell, Steve Nolte, 
 Michael G, Thomas Klausner, Yanick Champoux, Edward Baudrez, David Golden,
-J.R. Mash, Thilo Fester, Gregor Herrmann, Sergey Romanov, Sawyer X, Roman F.
+J.R. Mash, Thilo Fester, Gregor Herrmann, Sergey Romanov, Sawyer X, Roman F.,
+Hunter McMillen
 
 =head1 COPYRIGHT
 

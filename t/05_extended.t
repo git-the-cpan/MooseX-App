@@ -2,7 +2,7 @@
 
 # t/05_extended.t - Extended tests
 
-use Test::Most tests => 25+1;
+use Test::Most tests => 24+1;
 use Test::NoWarnings;
 
 use FindBin qw();
@@ -66,11 +66,6 @@ subtest 'All options available & no description' => sub {
     --some_option         Very important option!","Message ok");
 };
 
-subtest 'Test wrapper script error' => sub {
-    my $output = `$^X $FindBin::Bin/example/test03.pl some`;
-    like($output,qr/equired option 'another' missing/,'Output is ok');
-};
-
 # Not working on cpan testers
 #subtest 'Test wrapper script encoding' => sub {
 #    my $output = `LANG=en_US.UTF-8 $^X $FindBin::Bin/example/test03.pl some_command --another töst\\ möre --some_option "anöther täst"`;
@@ -106,7 +101,7 @@ subtest 'Test type constraints custom1' => sub {
 };
 
 subtest 'Test pass type constraints' => sub {
-    MooseX::App::ParsedArgv->new(argv => [qw(another --hash key1=value1 --split a;b --split c --hash key2=value2 --integer 10 --number 10.10 --custom1 11 --custom2 test --extra1 wurtsch --count --count)]);
+    MooseX::App::ParsedArgv->new(argv => [qw(another --hash key1=value1 --split a;b --split c --hash key2=value2 --integer 10 --number 10.10 --custom1 11 --custom2 test --extra1 wurtsch --count --count --cou)]);
     my $test09 = Test03->new_with_command;
     isa_ok($test09,'Test03::AnotherCommand');
     is($test09->hash->{key1},"value1","Hash ok");
@@ -116,7 +111,7 @@ subtest 'Test pass type constraints' => sub {
     is(ref($test09->custom2),'SCALAR',"Custom type 2 ok");
     is(${$test09->custom2},'test',"Custom type 2 ok");
     is($test09->extra1,'wurtsch',"Attr set ok");
-    is($test09->count,2,"Count set ok");
+    is($test09->count,3,"Count set ok");
     cmp_deeply($test09->split,[qw(a b c)],'Split ok');
 };
 

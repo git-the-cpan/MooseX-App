@@ -78,17 +78,38 @@ sub cmd_term_read_string {
     my ($self) = @_;
     
     my $label = $self->cmd_term_label_full;
-    my $return;
+    my ($return,@history,$history_disable);
     
     binmode STDIN,':encoding(UTF-8)';
     
-    ReadMode 4; # change to raw input mode
+    # Prefill history with enums
+    if ($self->has_type_constraint
+        && $self->type_constraint->isa('Moose::Meta::TypeConstraint::Enum')) {
+        push(@history,@{$self->type_constraint->values});
+        $history_disable = 1
+    } else {
+        push(@history,"");
+    }
+    
+    my $history_index = 0;
+    my $history_add = sub {
+        my $entry = shift;
+        if (! $history_disable
+            && defined $entry
+            && $entry !~ m/^\s*$/
+            && ! ($entry ~~ \@history)) {
+            push(@history,$entry);
+        }
+    };
+    
+    ReadMode('cbreak'); # change input mode
     TRY_STRING:
     while (1) {
         print "\n"
             if defined $return 
             && $return !~ /^\s*$/;
         $return = '';
+        
         if (defined $Term::ANSIColor::VERSION) {
             say Term::ANSIColor::color('white bold').$label.' :'.Term::ANSIColor::color('reset');
         } else {
@@ -97,52 +118,119 @@ sub cmd_term_read_string {
         
         1 while defined ReadKey -1; # discard any previous input
         
+        my $cursor = 0;
+        
         KEY_STRING: 
         while (1) {
             my $key = ReadKey 0; # read a single character
+            my $length = length($return);
+            
             given (ord($key)) {
                 when (10) { # Enter
                     print "\n";
+                    my $error;
                     if ($return =~ m/^\s*$/) {
                         if ($self->is_required) {
-                            next TRY_STRING;
+                            $error = 'Value is required';
                         } else {
                             $return = undef;
                             last TRY_STRING;
                         }
+                    } else {
+                        $error = $self->cmd_type_constraint_check($return);
                     }
-                    my $error = $self->cmd_type_constraint_check($return);
                     if ($error) {
                         if (defined $Term::ANSIColor::VERSION) {
                             say Term::ANSIColor::color('bright_red bold').$error.Term::ANSIColor::color('reset');
                         } else {
                             say $error;
                         }
+                        $history_add->($return);
                         next TRY_STRING;
                     } else {
                         last TRY_STRING; 
                     }
                 }
-                when (3) { # Ctrl-C
-                    print "\n"
-                        if $return !~ /^\s*$/;
-                    ReadMode 0;
-                    kill INT => $$; # Not sure ?
-                    #next TRY_STRING; 
-                }
-                when (27) { # ESC
-                    next TRY_STRING; 
+                when (27) { # Escape sequence
+                    my $escape;
+                    while (1) { # Read rest of escape sequence
+                        my $code = ReadKey -1;
+                        last unless defined $code;
+                        $escape .= $code;
+                    }
+                    if (defined $escape) {
+                        given ($escape) {
+                            when ('[D') { # Cursor left
+                                if ($cursor > 0) {
+                                    print "\b";
+                                    $cursor--;
+                                }
+                            }
+                            when ($escape eq '[C') { # Cursor right
+                                if ($cursor < length($return)) {
+                                    print substr $return,$cursor,1;
+                                    $cursor++;
+                                }
+                            }
+                            when ($escape eq '[A') { # Cursor up
+                                $history_add->($return);
+                                print "\b" x $cursor;
+                                print " " x length($return);
+                                print "\b" x length($return);
+                                
+                                $history_index ++
+                                    if defined $history[$history_index]
+                                    && $history[$history_index] eq $return;
+                                $history_index = 0
+                                    unless defined $history[$history_index];
+                                
+                                $return = $history[$history_index];
+                                $cursor = length($return);
+                                print $return;
+                                $history_index++;
+                            }
+                            when ($escape eq '[3~') { # Del
+                                if ($cursor != length($return)) {
+                                    substr $return,$cursor,1,'';
+                                    print substr $return,$cursor;
+                                    print " ".(("\b") x (length($return) - $cursor + 1));
+                                }
+                            }
+                            when ($escape eq 'OH') { # Pos 1
+                                print (("\b") x $cursor);
+                                $cursor = 0;
+                            }
+                            when ($escape eq 'OF') { # End
+                                print substr $return,$cursor;
+                                $cursor = length($return);
+                            }
+                            #default {
+                            #    print $escape;
+                            #}
+                        }
+                    } else {
+                        $history_add->($return);
+                        next TRY_STRING; 
+                    }
+                    
                 }
                 when (127) { # Backspace
-                    chop($return);
-                    print "\b \b";
+                    if ($cursor == 0) { # Ignore first
+                        next KEY_STRING;
+                    }
+                    $cursor--;
+                    substr $return,$cursor,1,''; # string
+                    print "\b".substr $return,$cursor; # print
+                    print " ".(("\b") x (length($return) - $cursor + 1)); # cursor
                 }
-                default {
+                default { # Character
                     if ($_ <= 31) { # ignore controll chars
                         next KEY_STRING;
                     }
-                    $return .= $key;
-                    print $key;
+                    substr $return,$cursor,0,$key; # string
+                    print substr $return,$cursor; # print
+                    $cursor++;
+                    print (("\b") x (length($return) - $cursor)); # cursor
                 }
             }
         }
@@ -158,17 +246,21 @@ sub cmd_term_read_bool {
     my $label = $self->cmd_term_label_full;
     my $return;
     
+    if (defined $Term::ANSIColor::VERSION) {
+        say Term::ANSIColor::color('white bold').$label.' :'.Term::ANSIColor::color('reset');
+    } else {
+        say $label.": ";
+    }
     ReadMode 4; # change to raw input mode
     TRY:
     while (1) {
         1 while defined ReadKey -1; # discard any previous input
-        say "$label: ";
         my $key = ReadKey 0; # read a single character
         if ($key =~ /^[yn]$/i) {
             say uc($key);
             $return = uc($key) eq 'Y' ? 1:0;
             last;
-        } elsif (ord($key) == 10 && ! $self->is_required) {
+        } elsif ((ord($key) == 10 || ord($key) == 27) && ! $self->is_required) {
             last;
         } elsif (ord($key) == 3) {
             ReadMode 0;
