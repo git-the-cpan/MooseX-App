@@ -60,13 +60,21 @@ has 'app_prefer_commandline' => (
     default     => sub {0},
 );
 
+has 'app_permute' => (
+    is          => 'rw',
+    isa         => 'Bool',
+    default     => sub {0},
+);
+
 has 'app_commands' => (
     is          => 'rw',
     isa         => 'HashRef[Str]',
     traits      => ['Hash'],
     handles     => {
         command_register    => 'set', 
-        command_get         => 'get',  
+        command_get         => 'get',
+        command_classes     => 'values',
+        command_list        => 'shallow_clone',
     },
     lazy        => 1,
     builder     => '_build_app_commands',
@@ -241,7 +249,7 @@ sub command_proto {
     my @attributes;
     foreach my $attribute ($self->command_usage_attributes($metaclass,'proto')) {
         next
-            unless $attribute->does('AppOption')
+            unless $attribute->does('MooseX::App::Meta::Role::Attribute::Option')
             && $attribute->has_cmd_type;
         push(@attributes,$attribute);
     }
@@ -517,9 +525,24 @@ sub command_parser_hints {
     my %hints;
     my %names;
     foreach my $attribute ($self->command_usage_attributes($metaclass,[qw(option proto)])) {
+        my $permute = 0;
+        my $type_constraint = $attribute->type_constraint;
+        if ($type_constraint
+            && (
+                $type_constraint->is_a_type_of('ArrayRef')
+                || $type_constraint->is_a_type_of('HashRef')
+            )) {
+            $permute = 1;
+        }
+        
+        my $hint = { 
+            name => $attribute->name, 
+            flag => ! $attribute->cmd_has_value,
+            permute => $permute,
+        };
+        
         foreach my $name ($attribute->cmd_name_possible) {
-            $names{$name} = { name => $attribute->name, novalue => $attribute->cmd_has_value };
-            $hints{$name} = $names{$name};
+             $names{$name} = $hints{$name} = $hint;
         }
     }
     
@@ -547,14 +570,16 @@ sub command_parser_hints {
         }
     }
     
-    my @return;
+    my $return = { permute => [], flags => [] };
     foreach my $name (keys %hints) {
-        next
-            if $hints{$name}->{novalue};
-        push(@return,$name);
+        if ($hints{$name}->{flag}) {
+            push(@{$return->{flags}},$name);
+        }
+        if ($hints{$name}->{permute}) {
+            push(@{$return->{permute}},$name);
+        }
     }
-    
-    return \@return;
+    return $return;
 }
 
 sub command_message {
@@ -595,7 +620,7 @@ sub command_usage_attributes {
     my @return;
     foreach my $attribute ($metaclass->get_all_attributes) {
         next
-            unless $attribute->does('AppOption')
+            unless $attribute->does('MooseX::App::Meta::Role::Attribute::Option')
             && $attribute->has_cmd_type;
         
         next
@@ -760,7 +785,8 @@ sub command_usage_global {
     
     my $commands = $self->app_commands;
     
-    while (my ($command,$class) = each %$commands) {
+    foreach my $command (keys %$commands) {
+        my $class = $commands->{$command}; 
         Class::Load::load_class($class);
         my $command_description;
         $command_description = $class->meta->command_short_description
@@ -853,6 +879,11 @@ command class attribute.
 By default, arguments passed to new_with_command and new_with_options have a 
 higher priority than the command line options. This boolean flag will give 
 the command line an higher priority.
+
+=head2 app_permute
+
+Boolean flag that controls if command line arguments that take multiple values
+(ie ArrayRef or HashRef type constraints) can be permuted.
 
 =head1 METHODS
 

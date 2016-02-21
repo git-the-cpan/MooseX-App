@@ -143,10 +143,14 @@ sub cmd_type_constraint_check {
         unless ($self->has_type_constraint);
     my $type_constraint = $self->type_constraint;
     
+    if ($type_constraint->has_coercion) {
+        $value = $type_constraint->coerce($value)
+    }
+    
     # Check type constraints
     unless ($type_constraint->check($value)) {
         if (ref($value) eq 'ARRAY') {
-            $value = join(', ',@$value);
+            $value = join(', ',grep { defined } @$value);
         } elsif (ref($value) eq 'HASH') {
             $value = join(', ',map { $_.'='.$value->{$_} } keys %$value)
         }
@@ -241,7 +245,7 @@ sub cmd_tags_list {
     
     if ($self->has_type_constraint) {
         my $type_constraint = $self->type_constraint;
-        if ($type_constraint->is_subtype_of('ArrayRef')) {
+        if ($type_constraint->is_a_type_of('ArrayRef')) {
             if ($self->has_cmd_split) {
                 my $split = $self->cmd_split;
                 if (ref($split) eq 'Regexp') {

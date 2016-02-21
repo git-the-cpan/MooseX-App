@@ -105,13 +105,13 @@ sub _build_command_pod {
         command_short_description   => ($pod_raw{NAME} || $pod_raw{ABSTRACT}),
     );
     
-    while (my ($key,$value) = each %pod) {
+    foreach my $key (keys %pod) {
         my $meta_attribute = $self->meta->find_attribute_by_name($key);
         next
             unless defined $meta_attribute;
         next
             if $meta_attribute->has_value($self);
-        $meta_attribute->set_raw_value($self,$value);
+        $meta_attribute->set_raw_value($self,$pod{$key});
     }
     
     return %pod;
@@ -138,7 +138,7 @@ MooseX::App::Meta::Role::Class::Documentation - Meta class role for command clas
 
 This meta class role will automatically be applied to all command classes.
 This documentation is only of interest if you intend to write plugins for 
-MooseX-App.
+MooseX::App.
 
 =head1 ACCESSORS
 

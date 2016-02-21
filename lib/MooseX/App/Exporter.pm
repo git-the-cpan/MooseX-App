@@ -54,6 +54,45 @@ sub _handle_attribute {
     my %attributes = ( definition_context => \%info, @rest );
     my $attrs = ( ref($name) eq 'ARRAY' ) ? $name : [ ($name) ];
     
+    # We are in a command class
+    if (! $meta->isa('Moose::Meta::Role')
+        && $meta->meta->does_role('MooseX::App::Meta::Role::Class::Command')) {
+        
+        # Get required extra traits for this class on first attrubute
+        unless ($meta->has_app_attribute_metaroles) {
+            foreach my $parent ($meta->linearized_isa) {
+                if ($parent->meta->does_role('MooseX::App::Meta::Role::Class::Base')) {
+                    $meta->app_attribute_metaroles([]);
+                    last;
+                }
+            }
+            unless ($meta->has_app_attribute_metaroles) {
+                my @extra_classes;
+                foreach my $class (keys %PLUGIN_SPEC) {
+                    my @commands = $class->meta->command_classes;
+                    if ($meta->name ~~ \@commands) {
+                        my $attribute_metaclass = $class->meta->attribute_metaclass;
+                        push @extra_classes,
+                            map { $_->name }
+                            grep { $_->name ne 'MooseX::App::Meta::Role::Attribute::Option' } 
+                            grep { ! $_->isa('Moose::Meta::Role::Composite')  }
+                            map { 
+                                $_->isa('Moose::Meta::Role::Composite') ?
+                                $_->calculate_all_roles : $_
+                            }
+                            $attribute_metaclass->meta->calculate_all_roles_with_inheritance;
+                    }
+                }
+                
+                $meta->app_attribute_metaroles_add(@extra_classes);
+            }
+        }
+        
+        $attributes{traits} ||= [];
+        push(@{$attributes{traits}},$meta->app_attribute_metaroles_uniq);
+    }
+    
+    
     $attributes{'cmd_type'} = $type;
     foreach my $attr (@$attrs) {
         my %local_attributes = %attributes;
@@ -66,9 +105,8 @@ sub _handle_attribute {
                     || 'MooseX::App::Meta::Role::Attribute::Option' ~~ $local_attributes{traits};
             }
         }
-
-        $meta->add_attribute( $attr, %local_attributes );
-
+        
+        $meta->add_attribute($attr, %local_attributes);
     }
     
     return;
@@ -87,6 +125,11 @@ sub app_strict($) {
 sub app_fuzzy($) {
     my ( $meta, $value ) = @_;
     return $meta->app_fuzzy($value);
+}
+
+sub app_permute($) {
+    my ( $meta, $value ) = @_;
+    return $meta->app_permute($value);
 }
 
 sub app_base($) {
@@ -116,15 +159,18 @@ sub process_plugins {
 sub process_init_meta {
     my ($self,%args) = @_;
     
-    my $meta            = Moose->init_meta( %args );
+    Moose->init_meta( %args );
+    
     my $plugins         = $PLUGIN_SPEC{$args{for_class}} || [];
     my $apply_metaroles = delete $args{metaroles} || {};
     my $apply_roles     = delete $args{roles} || [];
     
+    # Add plugin roles
     foreach my $plugin (@$plugins) {
         push(@{$apply_roles},$plugin,{ -excludes => [ 'plugin_metaroles' ] } )
     }
     
+    # Add common role
     push(@{$apply_roles},'MooseX::App::Role::Common')
         unless $apply_roles ~~ 'MooseX::App::Role::Common';
     
@@ -150,11 +196,15 @@ sub process_init_meta {
     # Add class roles
     Moose::Util::apply_all_roles($args{for_class},@{$apply_roles});
     
+    # Init plugins
     foreach my $plugin_class (@{$plugins}) {
         if ($plugin_class->can('init_plugin')) {
             $plugin_class->init_plugin($args{for_class});
         }
     }
+    
+    # Return meta
+    my $meta = $args{for_class}->meta;
     
     return $meta;
 }
